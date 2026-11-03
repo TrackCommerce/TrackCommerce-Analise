@@ -1,151 +1,81 @@
 library(ggplot2)
 library(dplyr)
-library(patchwork)
-library(scales) 
 
-caminho_silver <- "./track-commerce/silver"
+# 1. Leitura dos dados
+df_normal <- read.csv("dia_normal_sistema_limpo.csv", sep = ";")
+df_bf <- read.csv("black_friday_sistema_limpo.csv", sep = ";")
 
-pasta_destino <- "./"
+# Converter timestamps e definir o texto do cabeçalho azul
+df_normal$timestamp <- as.POSIXct(df_normal$timestamp)
+df_normal$Cabecalho <- "Dia Normal"
 
-meus_arquivos <- list.files(path = caminho_silver, 
-                            pattern = ".*_sistema\\.csv", 
-                            full.names = TRUE, 
-                            recursive = TRUE)
+df_bf$timestamp <- as.POSIXct(df_bf$timestamp)
+df_bf$Cabecalho <- "Black Friday"
 
-normalizar <- function(x) {
-  if(max(x, na.rm=TRUE) == min(x, na.rm=TRUE)) return(rep(0, length(x)))
-  return((x - min(x, na.rm=TRUE)) / (max(x, na.rm=TRUE) - min(x, na.rm=TRUE)) * 100)
-}
 
-for (ficheiro in meus_arquivos) {
+tema_cabecalho_azul <- theme_bw(base_size = 14) +
+  theme(
+    strip.background = element_rect(fill = "#2C3E50", color = "#2C3E50"), 
+    strip.text = element_text(color = "white", face = "bold", size = 16),
+    plot.title = element_text(face = "bold", size = 16, margin = margin(b = 5)),
+    plot.subtitle = element_text(size = 12, margin = margin(b = 15))
+  )
+
+
+# 1. GRÁFICO CPU - DIA NORMAL
+p_cpu_normal <- ggplot(df_normal, aes(x = timestamp, y = cpu_percent)) +
+  geom_line(color = "#2C3E50", linewidth = 0.6) + 
+  geom_hline(yintercept = 80, linetype = "dashed", color = "red", linewidth = 0.6) +
+  geom_hline(yintercept = 60, linetype = "dashed", color = "orange", linewidth = 0.6) +
+  facet_wrap(~ Cabecalho) + 
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = "Comparativo de Estresse da CPU: Operação Padrão vs Black Friday",
+       subtitle = "Linha Laranja: Atenção (60%) | Linha Vermelha: Gargalo Crítico (80%)",
+       x = "Horário da Operação", y = "Uso de CPU (%)") +
+  tema_cabecalho_azul
+
+ggsave("1_cpu_dia_normal.png", plot = p_cpu_normal, width = 12, height = 7, dpi = 300)
+
+# 2. GRÁFICO CPU - BLACK FRIDAY
+p_cpu_bf <- ggplot(df_bf, aes(x = timestamp, y = cpu_percent)) +
+  geom_line(color = "#C0504D", linewidth = 0.6) + 
+  geom_hline(yintercept = 80, linetype = "dashed", color = "red", linewidth = 0.6) +
+  geom_hline(yintercept = 60, linetype = "dashed", color = "orange", linewidth = 0.6) +
+  facet_wrap(~ Cabecalho) + 
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = "Comparativo de Estresse da CPU: Operação Padrão vs Black Friday",
+       subtitle = "Linha Laranja: Atenção (60%) | Linha Vermelha: Gargalo Crítico (80%)",
+       x = "Horário da Operação", y = "Uso de CPU (%)") +
+  tema_cabecalho_azul
+
+ggsave("2_cpu_black_friday.png", plot = p_cpu_bf, width = 12, height = 7, dpi = 300)
+
+# 3. GRÁFICO CRUZADO RAM E CPU
+
+p_correlacao_bf <- ggplot(df_bf, aes(x = timestamp)) +
+  geom_line(aes(y = ram_percent, color = "1. Uso de Memória RAM"), linewidth = 0.6) + 
+  geom_line(aes(y = cpu_percent, color = "2. Uso de CPU"), linewidth = 0.6) + 
   
-  df <- read.csv(ficheiro, sep = ";")
-  df[is.na(df)] <- 0
-  df$timestamp <- as.POSIXct(df$timestamp)
-  nome_maquina <- unique(df$hostname)[1]
+  geom_hline(yintercept = 90, linetype = "dashed", color = "darkred", linewidth = 0.6) +
   
-  df$rede_bytes_total <- df$rede_upload_bytes_s + df$rede_download_bytes_s
+  geom_hline(yintercept = 75, linetype = "dashed", color = "orange", linewidth = 0.6) +
   
-  df_filtrado <- df %>%
-    arrange(timestamp) %>%
-    head(50)
+  facet_wrap(~ Cabecalho) + 
+  scale_y_continuous(limits = c(0, 100)) +
   
- # Gráficos individuais 
+  scale_color_manual(values = c("1. Uso de Memória RAM" = "#DF5800", 
+                                "2. Uso de CPU" = "#2C3E50")) +
   
-  p_ind1 <- ggplot(df_filtrado, aes(x = timestamp, y = cpu_percent)) +
-    geom_line(color = "blue", size = 1) + geom_point(color = "darkblue") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + 
-    scale_y_continuous(limits = c(0, max(df_filtrado$cpu_percent, 1, na.rm = TRUE))) +
-    labs(title = paste("1. Uso de CPU -", nome_maquina), x = "Horário", y = "CPU (%)") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  p_ind2 <- ggplot(df_filtrado, aes(x = timestamp, y = ram_percent)) +
-    geom_line(color = "red", size = 1) + geom_point(color = "darkred") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + 
-    scale_y_continuous(limits = c(0, max(df_filtrado$ram_percent, 1, na.rm = TRUE))) +
-    labs(title = "2. Uso de RAM", x = "Horário", y = "RAM (%)") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  p_ind3 <- ggplot(df_filtrado, aes(x = timestamp, y = swap_percent)) +
-    geom_line(color = "purple", size = 1) + geom_point(color = "purple4") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + 
-    scale_y_continuous(limits = c(0, max(df_filtrado$swap_percent, 1, na.rm = TRUE))) +
-    labs(title = "3. Uso de Swap", x = "Horário", y = "Swap (%)") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  p_ind4 <- ggplot(df_filtrado, aes(x = timestamp, y = disco_iops_total)) +
-    geom_line(color = "darkgreen", size = 1) + geom_point(color = "green") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + 
-    scale_y_continuous(limits = c(0, max(df_filtrado$disco_iops_total, 1, na.rm = TRUE))) +
-    labs(title = "4. Operações de Disco", x = "Horário", y = "Total IOPS") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  p_ind5 <- ggplot(df_filtrado, aes(x = timestamp, y = rede_conn_total)) +
-    geom_line(color = "orange", size = 1) + geom_point(color = "darkorange") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + 
-    scale_y_continuous(limits = c(0, max(df_filtrado$rede_conn_total, 1, na.rm = TRUE))) +
-    labs(title = "5. Conexões de Rede", x = "Horário", y = "Total Conexões") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  grafico_individuais <- p_ind1 / p_ind2 / p_ind3 / p_ind4 / p_ind5
-  nome_saida_ind <- paste0(pasta_destino, "graficos_individuais_", nome_maquina, ".png")
-  ggsave(nome_saida_ind, plot = grafico_individuais, width = 10, height = 25, dpi = 300)
-  
- 
-  # Gráficos Cruzados 
-  
-  df_norm <- df_filtrado %>%
-    mutate(
-      swap_norm = normalizar(swap_percent),
-      disco_iops_norm = normalizar(disco_iops_total),
-      iowait_norm = normalizar(cpu_iowait_pct),
-      latencia_norm = normalizar(disco_latencia_ms),
-      load_norm = normalizar(load_1m),
-      mem_norm = normalizar(ram_percent),
-      cpu_sys_norm = normalizar(cpu_sys_pct),
-      cached_norm = normalizar(ram_cached_gb),
-      disco_leit_norm = normalizar(disco_iops_leitura),
-      rede_total_norm = normalizar(rede_bytes_total),
-      cpu_norm = normalizar(cpu_percent),
-      close_wait_norm = normalizar(rede_close_wait),
-      rede_down_norm = normalizar(rede_download_bytes_s),
-      disco_escr_norm = normalizar(disco_escrita_bytes_s)
-    )
-  
-  p_cruz1 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = swap_norm, color = "RAM"), size = 1) +
-    geom_line(aes(y = disco_iops_norm, color = "Disco"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "1. RAM ↔ Disco (Falta de Memória)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz2 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = iowait_norm, color = "CPU"), size = 1) +
-    geom_line(aes(y = latencia_norm, color = "Disco"), size = 1) +
-    geom_line(aes(y = load_norm, color = "Load Average"), size = 1, linetype = "dashed") +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "2. Disco ↔ CPU (Gargalo no Disco)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz3 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = mem_norm, color = "RAM"), size = 1) +
-    geom_line(aes(y = cpu_sys_norm, color = "CPU"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "3. RAM ↔ CPU (Pressão/Vazamento)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz4 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = cached_norm, color = "RAM"), size = 1) +
-    geom_line(aes(y = disco_leit_norm, color = "Disco"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "4. RAM ↔ Disco (Perda de Cache)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz5 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = rede_total_norm, color = "Rede"), size = 1) +
-    geom_line(aes(y = cpu_norm, color = "CPU"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "5. Rede ↔ CPU (Carga de Acessos)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz6 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = close_wait_norm, color = "Rede"), size = 1) +
-    geom_line(aes(y = mem_norm, color = "RAM"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "6. Rede ↔ RAM (Vazamento de Conexões)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  p_cruz7 <- ggplot(df_norm, aes(x = timestamp)) +
-    geom_line(aes(y = rede_down_norm, color = "Rede"), size = 1) +
-    geom_line(aes(y = disco_escr_norm, color = "Disco"), size = 1) +
-    scale_x_datetime(date_labels = "%H:%M:%S") + scale_y_continuous(limits = c(0, 100)) +
-    labs(title = "7. Rede ↔ Disco (Uploads pesando no Storage)", x = "Horário", y = "Pico %") +
-    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
-  
-  grafico_cruzados <- p_cruz1 / p_cruz2 / p_cruz3 / p_cruz4 / p_cruz5 / p_cruz6 / p_cruz7
-  nome_saida_cruz <- paste0(pasta_destino, "graficos_cruzados_", nome_maquina, ".png")
-  ggsave(nome_saida_cruz, plot = grafico_cruzados, width = 12, height = 30, dpi = 300)
-  
-  message(paste("Gerado:", nome_saida_ind))
-  message(paste("Gerado:", nome_saida_cruz))
-}
+  labs(title = "Causa e Efeito: RAM ↔ CPU",
+       subtitle = "O esgotamento da memória força o consumo da CPU ao limite",
+       x = "Horário da Operação", 
+       y = "Utilização de Recursos (%)",
+       color = "Métrica Monitorada:") +
+  tema_cabecalho_azul +
+  theme(
+    legend.position = "bottom", 
+    legend.text = element_text(size = 14, face = "bold"),
+    legend.title = element_text(size = 14)
+  )
+
+ggsave("3_correlacao_ram_cpu_bf.png", plot = p_correlacao_bf, width = 12, height = 7, dpi = 300)
